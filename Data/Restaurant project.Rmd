@@ -1,0 +1,132 @@
+---
+title: "Restaurant Project"
+author: "Emiliano Pizaña"
+date: "6/16/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+**Introduction**
+
+*The purpose of the project is to find a mathematical model to increase the effectiveness of investments in new restaurant sites. Using demographic, real estate, and commercial data, the objective is to predict the annual restaurant sales of 100,000 regional locations.*
+
+```{r Load Libraries, include=FALSE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(dtplyr)
+library(tidyr)
+library(MASS)
+library(randomForest)
+library(purrr)
+library(caret)
+```
+**Read Data**
+```{r}
+train_df <- read.csv("train_rest_1.csv")
+test_df <- read.csv("test_rest_2.csv")
+```
+**Data Summary**
+```{r}
+head(train_df)
+head(test_df)
+summary(train_df)
+str(train_df)
+```
+*We can see the structure of the data and the number of varibles in the data set.*
+
+**Missing values in train data**
+```{r}
+missing_values <- train_df  %>%
+  summarise_all(list(~is.na(.))) %>%
+  pivot_longer(everything(),
+               names_to = "variables", values_to="missing_data") %>%
+  count(variables, missing_data) 
+
+ggplot(missing_values, aes(y = variables, x = n, fill = missing_data)) + 
+  geom_col()
+
+sprintf("We have left %1.0f missing values", sum(missing_values$missing_data))
+
+```
+**Missing values in test data**
+```{r}
+missing_values_test <- test_df  %>%
+  summarise_all(list(~is.na(.))) %>%
+  pivot_longer(everything(),
+               names_to = "variables", values_to="missing_data") %>%
+  count(variables, missing_data) 
+
+ggplot(missing_values_test, aes(y = variables, x = n, fill = missing_data)) + 
+  geom_col()
+
+sprintf("We have left %1.0f missing values", sum(missing_values_test$missing_data))
+```
+*Now we join the data for easier manipulation.*
+```{r}
+test_id <- test_df$Id
+test_df <- test_df %>%
+  mutate(revenue = NA)
+all_data <- rbind(train_df, test_df)
+```
+*We first begin with the date variable. In this case we will create a new variable with the number of days the restaurant has been open and use it for the predictions.*
+```{r}
+all_data$Open.Date <- as.Date(all_data$Open.Date, format = "%m/%d/%Y")
+
+str(all_data$Open.Date)
+
+all_data <- all_data %>%
+  mutate(days_since_open = as.numeric(Sys.Date()-all_data$Open.Date))
+
+str(all_data$days_since_open)
+```
+*We can see the unique values of the categorical data* 
+```{r}
+length(unique(all_data$City))
+length(unique(all_data$City.Group))
+length(unique(all_data$Type))
+```
+*Note that the City variable has too many unique values and also there will be some different cities in the train data than in the test data so we will not be using City as a factor variable.* 
+```{r}
+all_data$City.Group <- as.factor(all_data$City.Group)
+all_data$Type <- as.factor(all_data$Type)
+str(all_data$City.Group)
+str(all_data$Type)
+```
+**Data separation**
+```{r}
+train_df_final <- all_data[1:137,]
+test_df_final <- all_data[138:length(all_data$Id),]
+
+train_df_final <- train_df_final[-c(1,2,3)]
+test_df_final <- test_df_final[-c(1,2,3,43)]
+```
+**Data scaling for numerical variables**
+```{r}
+for(i in c(3:39,41)){
+  train_df_final[i] <- scale(train_df_final[i],center=TRUE,scale =TRUE)
+}
+```
+
+**Regression model**
+```{r}
+model_1 <- glm(revenue ~., train_df_final, family = "gaussian")
+summary(model_1)
+```
+
+**Random forest model**
+```{r}
+randomforest_model <- randomForest(revenue ~., train_df_final)
+summary(randomforest_model)
+print(randomforest_model)
+```
+
+**Prediction for random forest model**
+```{r}
+prediction_model_1 <- predict(randomforest_model,test_df_final)
+head(prediction_model_1)
+
+submission_df <- data.frame(test_id, prediction_model_1)
+```
